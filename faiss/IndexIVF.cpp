@@ -53,30 +53,30 @@ Level1Quantizer::~Level1Quantizer() {
     }
 }
 
-void Level1Quantizer::train_q1(
+void Level1Quantizer::train_q1(     //负责训练 IVF 的一级量化器（quantizer）
         size_t n,
         const float* x,
         bool verbose,
         MetricType metric_type) {
     size_t d = quantizer->d;
-    if (quantizer->is_trained && (quantizer->ntotal == nlist)) {
+    if (quantizer->is_trained && (quantizer->ntotal == nlist)) {    //ntotal 代表量化器中已经添加的聚类中心的数量； nlist 是预定的簇（倒排桶）数量
         if (verbose)
             printf("IVF quantizer does not need training.\n");
-    } else if (quantizer_trains_alone == 1) {
+    } else if (quantizer_trains_alone == 1) {   //量化器单独训练
         if (verbose)
             printf("IVF quantizer trains alone...\n");
         quantizer->verbose = verbose;
-        quantizer->train(n, x);
-        FAISS_THROW_IF_NOT_MSG(
+        quantizer->train(n, x);     //空实现
+        FAISS_THROW_IF_NOT_MSG(     //如果 quantizer->ntotal 不等于 nlist，就抛出异常
                 quantizer->ntotal == nlist,
                 "nlist not consistent with quantizer size");
     } else if (quantizer_trains_alone == 0) {
         if (verbose)
             printf("Training level-1 quantizer on %zd vectors in %zdD\n", n, d);
 
-        Clustering clus(d, nlist, cp);
+        Clustering clus(d, nlist, cp);  //创建一个名为 clus 的 Clustering 对象，用于对维度为 d 的数据进行聚类，聚类的簇数为 nlist，cp 为传入的聚类参数（比如迭代次数、收敛条件等）。
         quantizer->reset();
-        if (clustering_index) {
+        if (clustering_index) {     //如果 clustering_index 存在（非空指针），就用它作为索引来做聚类
             clus.train(n, x, *clustering_index);
             quantizer->add(nlist, clus.centroids.data());
         } else {
@@ -1152,7 +1152,7 @@ void IndexIVF::train(idx_t n, const float* x) {
         printf("Training level-1 quantizer\n");
     }
 
-    train_q1(n, x, verbose, metric_type);
+    train_q1(n, x, verbose, metric_type);   //训练一级量化器（通常是k-means聚类的质心），划分数据空间
 
     if (verbose) {
         printf("Training IVF residual\n");

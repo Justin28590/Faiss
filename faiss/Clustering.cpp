@@ -33,7 +33,7 @@ Clustering::Clustering(int d, int k) : d(d), k(k) {}
 Clustering::Clustering(int d, int k, const ClusteringParameters& cp)
         : ClusteringParameters(cp), d(d), k(k) {}
 
-void Clustering::post_process_centroids() {
+void Clustering::post_process_centroids() {     //在每次更新聚类中心后对其进行后处理
     if (spherical) {
         fvec_renorm_L2(d, k, centroids.data());
     }
@@ -44,7 +44,7 @@ void Clustering::post_process_centroids() {
     }
 }
 
-void Clustering::train(
+void Clustering::train(     //调用 train_encoded 函数来执行训练
         idx_t nx,
         const float* x_in,
         Index& index,
@@ -264,7 +264,7 @@ int split_clusters(
 
 } // namespace
 
-void Clustering::train_encoded(
+void Clustering::train_encoded(     // k-means 聚类训练的完整实现
         idx_t nx,
         const uint8_t* x_in,
         const Index* codec,
@@ -303,21 +303,21 @@ void Clustering::train_encoded(
         }
     }
 
-    const uint8_t* x = x_in;
-    std::unique_ptr<uint8_t[]> del1;
-    std::unique_ptr<float[]> del3;
-    size_t line_size = codec ? codec->sa_code_size() : sizeof(float) * d;
+    const uint8_t* x = x_in;        //样本数据指针，连续存储了 nx 个样本，每个样本占 line_size 字节
+    std::unique_ptr<uint8_t[]> del1;    //声明一个智能指针 del1，用来管理动态分配的 uint8_t 数组内存
+    std::unique_ptr<float[]> del3;      //声明另一个智能指针 del3，管理动态分配的 float 数组内存
+    size_t line_size = codec ? codec->sa_code_size() : sizeof(float) * d;   //计算每个训练样本（向量）占用的字节数
 
-    if (nx > k * max_points_per_centroid) {
+    if (nx > k * max_points_per_centroid) {     //如果训练点数远多于每个簇的最大允许点数乘以簇数，说明数据太多了，可能训练太慢或者内存压力大
         uint8_t* x_new;
         float* weights_new;
-        nx = subsample_training_set(
+        nx = subsample_training_set(        //调用 subsample_training_set() 对训练数据进行下采样，减少训练点数
                 *this, nx, x, line_size, weights, &x_new, &weights_new);
         del1.reset(x_new);
         x = x_new;
         del3.reset(weights_new);
         weights = weights_new;
-    } else if (nx < k * min_points_per_centroid) {
+    } else if (nx < k * min_points_per_centroid) {      //训练点数太少，不足以满足每个簇所需的最少点数，打印一个警告，提示训练数据可能不够
         fprintf(stderr,
                 "WARNING clustering %" PRId64
                 " points to %zd centroids: "
@@ -327,7 +327,7 @@ void Clustering::train_encoded(
                 idx_t(k) * min_points_per_centroid);
     }
 
-    if (nx == k) {
+    if (nx == k) {      //当训练样本数 nx 正好等于聚类中心数 k 时，直接用样本当质心，不用真正聚类
         // this is a corner case, just copy training set to clusters
         if (verbose) {
             printf("Number of training points (%" PRId64
@@ -366,13 +366,13 @@ void Clustering::train_encoded(
         }
     }
 
-    std::unique_ptr<idx_t[]> assign(new idx_t[nx]);
-    std::unique_ptr<float[]> dis(new float[nx]);
+    std::unique_ptr<idx_t[]> assign(new idx_t[nx]);     //assign：分配一个大小为 nx 的数组，用来存储每个样本点所属的簇索引  
+    std::unique_ptr<float[]> dis(new float[nx]);        //dis：分配一个大小为 nx 的数组，用来存储每个样本点到其簇中心的距离
 
     // remember best iteration for redo
-    bool lower_is_better = !is_similarity_metric(index.metric_type);
-    float best_obj = lower_is_better ? HUGE_VALF : -HUGE_VALF;
-    std::vector<ClusteringIterationStats> best_iteration_stats;
+    bool lower_is_better = !is_similarity_metric(index.metric_type);    //判断当前的距离度量是不是相似度度量（metric_type 是距离还是相似度），如果是距离，目标是越小越好
+    float best_obj = lower_is_better ? HUGE_VALF : -HUGE_VALF;      //best_obj：记录当前最优目标函数值（比如总距离和）
+    std::vector<ClusteringIterationStats> best_iteration_stats;     //best_iteration_stats 和 best_centroids：保存每次训练的统计信息和最优的簇中心。
     std::vector<float> best_centroids;
 
     // support input centroids
@@ -381,7 +381,7 @@ void Clustering::train_encoded(
             centroids.size() % d == 0,
             "size of provided input centroids not a multiple of dimension");
 
-    size_t n_input_centroids = centroids.size() / d;
+    size_t n_input_centroids = centroids.size() / d;        //计算当前已经给出的初始质心（centroids）的个数
 
     if (verbose && n_input_centroids > 0) {
         printf("  Using %zd centroids provided as input (%sfrozen)\n",
@@ -396,48 +396,48 @@ void Clustering::train_encoded(
     t0 = getmillisecs();
 
     // initialize seed
-    const uint64_t actual_seed = get_actual_rng_seed(seed);
+    const uint64_t actual_seed = get_actual_rng_seed(seed);     //获取真正用于随机数生成器的种子，保证后续随机操作（比如质心初始化）可重复或有确定性
 
     // temporary buffer to decode vectors during the optimization
-    std::vector<float> decode_buffer(codec ? d * decode_block_size : 0);
+    std::vector<float> decode_buffer(codec ? d * decode_block_size : 0);        //如果用到了编码器（codec 非空），就申请一个临时浮点数组，大小是 d * decode_block_size，用于解码编码后的向量，方便后续计算
 
-    for (int redo = 0; redo < nredo; redo++) {
+    for (int redo = 0; redo < nredo; redo++) {      //redo 表示为了避免局部最优，进行多次聚类重试，每次随机初始化。
         if (verbose && nredo > 1) {
             printf("Outer iteration %d / %d\n", redo, nredo);
         }
 
         // initialize (remaining) centroids with random points from the dataset
-        centroids.resize(d * k);
+        centroids.resize(d * k);    //分配 k 个 d 维质心的存储空间
         std::vector<int> perm(nx);
 
-        rand_perm(perm.data(), nx, actual_seed + 1 + redo * 15486557L);
+        rand_perm(perm.data(), nx, actual_seed + 1 + redo * 15486557L); //用 actual_seed 派生一个新种子生成随机排列 perm，确保每次 redo 初始化的点不同
 
-        if (!codec) {
-            for (int i = n_input_centroids; i < k; i++) {
-                memcpy(&centroids[i * d], x + perm[i] * line_size, line_size);
+        //选择k个聚类中心
+        if (!codec) {   //如果没有编码器（!codec），就直接 memcpy 向量
+            for (int i = n_input_centroids; i < k; i++) {   //从已有质心数量 n_input_centroids 继续初始化剩余的质心
+                memcpy(&centroids[i * d], x + perm[i] * line_size, line_size);  //指针偏移操作:取第i个被随机选中的样本复制line_size字节长度到质心的储存空间中,即将随机选中的样本向量作为第 i 个初始化质心
             }
         } else {
-            for (int i = n_input_centroids; i < k; i++) {
+            for (int i = n_input_centroids; i < k; i++) {   //有编码器就先解码（sa_decode）再存入质心
                 codec->sa_decode(1, x + perm[i] * line_size, &centroids[i * d]);
             }
         }
 
-        post_process_centroids();
+        post_process_centroids();   //在每次更新聚类中心后对其进行后处理
 
         // prepare the index
 
-        if (index.ntotal != 0) {
+        if (index.ntotal != 0) {    //清空已有数据（如果 index 中已经有向量）
             index.reset();
         }
 
-        if (!index.is_trained) {
+        if (!index.is_trained) {        //如果 index 还没有训练，先用 centroids 对其进行训练
             index.train(k, centroids.data());
         }
 
-        index.add(k, centroids.data());
+        index.add(k, centroids.data());     //将 k 个聚类中心加入 index
 
         // k-means iterations
-
         float obj = 0;
         for (int i = 0; i < niter; i++) {
             double t0s = getmillisecs();

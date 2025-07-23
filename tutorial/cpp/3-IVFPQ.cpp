@@ -1,9 +1,4 @@
-/*
- * Copyright (c) Meta Platforms, Inc. and affiliates.
- *
- * This source code is licensed under the MIT license found in the
- * LICENSE file in the root directory of this source tree.
- */
+//每个倒排桶中用 PQ 编码后的向量，适合大规模数据，精度略低
 
 #include <cstdio>
 #include <cstdlib>

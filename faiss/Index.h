@@ -99,7 +99,7 @@ struct Index {
 
     int d;        ///< vector dimension
     idx_t ntotal; ///< total nb of indexed vectors
-    bool verbose; ///< verbosity level
+    bool verbose; ///< verbosity level  用来控制“日志输出详细程度”或“调试信息打印”的变量
 
     /// set if the Index does not require training, or if training is
     /// done already

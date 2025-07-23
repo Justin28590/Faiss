@@ -87,8 +87,8 @@ struct IndexFlatL2 : IndexFlat {
     /**
      * @param d dimensionality of the input vectors
      */
-    explicit IndexFlatL2(idx_t d) : IndexFlat(d, METRIC_L2) {}
-    IndexFlatL2() {}
+    explicit IndexFlatL2(idx_t d) : IndexFlat(d, METRIC_L2) {}  //空的函数体，不执行任何额外操作，只调用了基类构造函数
+    IndexFlatL2() {}    //默认构造函数，没有参数、没有初始化列表，也没有函数体内容
 
     // override for l2 norms cache.
     FlatCodesDistanceComputer* get_FlatCodesDistanceComputer() const override;

@@ -1,9 +1,4 @@
-/*
- * Copyright (c) Meta Platforms, Inc. and affiliates.
- *
- * This source code is licensed under the MIT license found in the
- * LICENSE file in the root directory of this source tree.
- */
+//每个倒排桶用的是 IndexFlatL2（原始向量),适合小数据量,精度高
 
 #include <cassert>
 #include <cstdio>
@@ -17,7 +12,7 @@ using idx_t = faiss::idx_t;
 
 int main() {
     int d = 64;      // dimension
-    int nb = 100000; // database size
+    int nb = 100000; // database size: 0.1M
     int nq = 10000;  // nb of queries
 
     std::mt19937 rng;
@@ -29,7 +24,7 @@ int main() {
     for (int i = 0; i < nb; i++) {
         for (int j = 0; j < d; j++)
             xb[d * i + j] = distrib(rng);
-        xb[d * i] += i / 1000.;
+        xb[d * i] += i / 1000.; //在向量的第一个维度增加一个线性偏移量，避免随机重合
     }
 
     for (int i = 0; i < nq; i++) {
@@ -38,13 +33,14 @@ int main() {
         xq[d * i] += i / 1000.;
     }
 
-    int nlist = 100;
-    int k = 4;
+    int nlist = 100;    //聚类中心数
+    int k = 4;          //查询时返回的邻居数
 
-    faiss::IndexFlatL2 quantizer(d); // the other index
-    faiss::IndexIVFFlat index(&quantizer, d, nlist);
-    assert(!index.is_trained);
-    index.train(nb, xb);
+    faiss::IndexFlatL2 quantizer(d);    //创建了一个用于划分倒排桶的“量化器”
+    faiss::IndexIVFFlat index(&quantizer, d, nlist);        //创建了一个倒排文件索引（IVF）  
+    index.verbose = true;   // IndexIVF 有 verbose 成员，可以直接设置                                                                                                                                                                                                                   
+    assert(!index.is_trained);  //确保在调用 train() 之前，索引是未训练状态,否则抛出异常
+    index.train(nb, xb);        //训练倒排索引（IVF）的量化器和编码器                                                                                                                                                     
     assert(index.is_trained);
     index.add(nb, xb);
 
@@ -54,7 +50,7 @@ int main() {
 
         index.search(nq, xq, k, D, I);
 
-        printf("I=\n");
+        printf("I=\n");                                                                     
         for (int i = nq - 5; i < nq; i++) {
             for (int j = 0; j < k; j++)
                 printf("%5zd ", I[i * k + j]);

@@ -1,0 +1,19 @@
+{
+    "files.associations": {
+        "cassert": "cpp",
+        "random": "cpp",
+        "future": "cpp",
+        "algorithm": "cpp",
+        "any": "cpp",
+        "memory": "cpp",
+        "atomic": "cpp",
+        "compare": "cpp",
+        "optional": "cpp",
+        "numeric": "cpp",
+        "sstream": "cpp",
+        "cmath": "cpp",
+        "deque": "cpp",
+        "filesystem": "cpp",
+        "iterator": "cpp"
+    }
+}
