@@ -687,10 +687,11 @@ std::unique_ptr<Index> index_factory_sub(
         std::string description,
         MetricType metric,
         bool own_invlists = true) {
-    // handle composite indexes
 
-    bool verbose = index_factory_verbose;
-
+    //bool verbose = index_factory_verbose;
+    
+    bool verbose = 1;
+    
     if (verbose) {
         printf("begin parse VectorTransforms: %s \n", description.c_str());
     }

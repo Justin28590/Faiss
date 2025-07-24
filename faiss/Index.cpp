@@ -33,7 +33,8 @@ void Index::range_search(
     FAISS_THROW_MSG("range search not implemented");
 }
 
-void Index::assign(idx_t n, const float* x, idx_t* labels, idx_t k) const {
+//完成“给定点找最近簇（质心）或邻居”的操作，把结果写入 labels，方便后续使用
+void Index::assign(idx_t n, const float* x, idx_t* labels, idx_t k) const {         
     std::vector<float> distances(n * k);
     search(n, x, k, distances.data(), labels);
 }

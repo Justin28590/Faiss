@@ -121,14 +121,14 @@ idx_t subsample_training_set(
 
 /** compute centroids as (weighted) sum of training points
  *
- * @param x            training vectors, size n * code_size (from codec)
+ * @param x            训练向量数组, size n * code_size (from codec)
  * @param codec        how to decode the vectors (if NULL then cast to float*)
- * @param weights      per-training vector weight, size n (or NULL)
- * @param assign       nearest centroid for each training vector, size n
- * @param k_frozen     do not update the k_frozen first centroids
- * @param centroids    centroid vectors (output only), size k * d
- * @param hassign      histogram of assignments per centroid (size k),
- *                     should be 0 on input
+ * @param weights      每个训练样本的权重，大小为 n
+ * @param assign       表示第 i 个训练样本被分配到的最近质心编号（聚类标签）
+ * @param k_frozen     前 k_frozen 个质心不进行更新，用于冻结已有质心
+ * @param centroids    数组，每一行是一个聚类质心向量   
+ * @param hassign      每个质心的分配直方图，大小为 k ,第 ci 个质心被分配了多少样本
+ *                     
  *
  */
 
@@ -146,7 +146,7 @@ void compute_centroids(
     k -= k_frozen;
     centroids += k_frozen * d;
 
-    memset(centroids, 0, sizeof(*centroids) * d * k);
+    memset(centroids, 0, sizeof(*centroids) * d * k);   //把质心初始化为 0
 
     size_t line_size = codec ? codec->sa_code_size() : d * sizeof(float);
 
@@ -161,23 +161,23 @@ void compute_centroids(
         std::vector<float> decode_buffer(d);
 
         for (size_t i = 0; i < n; i++) {
-            int64_t ci = assign[i];
+            int64_t ci = assign[i];     //获取该样本所属的聚类编号
             assert(ci >= 0 && ci < k + k_frozen);
             ci -= k_frozen;
             if (ci >= c0 && ci < c1) {
-                float* c = centroids + ci * d;
+                float* c = centroids + ci * d;  //找到当前样本所属的质心在 centroids 数组中的地址
                 const float* xi;
                 if (!codec) {
-                    xi = reinterpret_cast<const float*>(x + i * line_size);
+                    xi = reinterpret_cast<const float*>(x + i * line_size); //把原始字节转换为 float* 指针
                 } else {
                     float* xif = decode_buffer.data();
                     codec->sa_decode(1, x + i * line_size, xif);
                     xi = xif;
                 }
-                if (weights) {
+                if (weights) {  //每个样本对其聚类中心的贡献按权重加权
                     float w = weights[i];
                     hassign[ci] += w;
-                    for (size_t j = 0; j < d; j++) {
+                    for (size_t j = 0; j < d; j++) {    //按维度加权累加样本向量
                         c[j] += xi[j] * w;
                     }
                 } else {
@@ -195,10 +195,11 @@ void compute_centroids(
         if (hassign[ci] == 0) {
             continue;
         }
-        float norm = 1 / hassign[ci];
-        float* c = centroids + ci * d;
+        //hassign[ci] 表示聚到第 ci 个质心的训练向量数量
+        float norm = 1 / hassign[ci];       //将每个质心向量取平均，完成 KMeans 聚类中的“更新质心”
+        float* c = centroids + ci * d;      //第 ci 个质心向量的起始地址
         for (size_t j = 0; j < d; j++) {
-            c[j] *= norm;
+            c[j] *= norm;       //遍历每一维 j，将之前累加的值除以 hassign[ci]
         }
     }
 }
@@ -435,7 +436,7 @@ void Clustering::train_encoded(     // k-means 聚类训练的完整实现
             index.train(k, centroids.data());
         }
 
-        index.add(k, centroids.data());     //将 k 个聚类中心加入 index
+        index.add(k, centroids.data());     //将 k 个聚类中心加入到 IVF 索引的倒排文件结构中
 
         // k-means iterations
         float obj = 0;
@@ -443,7 +444,7 @@ void Clustering::train_encoded(     // k-means 聚类训练的完整实现
             double t0s = getmillisecs();
 
             if (!codec) {
-                index.search(
+                index.search(       //执行向量搜索，返回查询向量最近的一个质心的距离和索引
                         nx,
                         reinterpret_cast<const float*>(x),
                         1,
@@ -472,7 +473,7 @@ void Clustering::train_encoded(     // k-means 聚类训练的完整实现
             t_search_tot += getmillisecs() - t0s;
 
             // accumulate objective
-            obj = 0;
+            obj = 0;    //把所有向量到其对应最近质心的距离累加，得到当前的聚类误差obj
             for (int j = 0; j < nx; j++) {
                 obj += dis[j];
             }
@@ -481,7 +482,7 @@ void Clustering::train_encoded(     // k-means 聚类训练的完整实现
             std::vector<float> hassign(k);
 
             size_t k_frozen = frozen_centroids ? n_input_centroids : 0;
-            compute_centroids(
+            compute_centroids(      //重新分配簇中心位置
                     d,
                     k,
                     nx,
@@ -493,11 +494,11 @@ void Clustering::train_encoded(     // k-means 聚类训练的完整实现
                     hassign.data(),
                     centroids.data());
 
-            int nsplit = split_clusters(
+            int nsplit = split_clusters(    //对大簇进行分裂，防止某些簇过大导致效果不佳
                     d, k, nx, k_frozen, hassign.data(), centroids.data());
 
             // collect statistics
-            ClusteringIterationStats stats = {
+            ClusteringIterationStats stats = {      //收集本次迭代的时间、搜索时间、目标值、不平衡度和分裂簇数，存入iteration_stats
                     obj,
                     (getmillisecs() - t0) / 1000.0,
                     t_search_tot / 1000,
@@ -545,11 +546,11 @@ void Clustering::train_encoded(     // k-means 聚类训练的完整实现
             index.reset();
         }
     }
-    if (nredo > 1) {
+    if (nredo > 1) {        //保存和恢复效果最好的聚类结果
         centroids = best_centroids;
         iteration_stats = best_iteration_stats;
         index.reset();
-        index.add(k, best_centroids.data());
+        index.add(k, best_centroids.data());    //在所有重试聚类完成后，把质心和统计信息恢复成最好的那个，并重新用最好的质心更新索引
     }
 }
 

@@ -618,8 +618,9 @@ void ParameterSpace::explore(
             nq == crit.nq, "criterion does not have the same nb of queries");
 
     size_t n_comb = n_combinations();
-
-    if (n_experiments == 0) {
+    
+    //穷举所有参数组合，依次设置索引参数，执行搜索，评估性能
+    if (n_experiments == 0) {   
         for (size_t cno = 0; cno < n_comb; cno++) {
             set_index_parameters(index, cno);
             std::vector<idx_t> I(nq * crit.nnn);
@@ -645,14 +646,13 @@ void ParameterSpace::explore(
         return;
     }
 
+    //随机实验组合构造:强制让组合 0 和组合 n_comb - 1 被尝试（通常是最慢和最快)
     int n_exp = n_experiments;
-
     if (n_exp > n_comb)
         n_exp = n_comb;
     FAISS_THROW_IF_NOT(n_comb == 1 || n_exp > 2);
     std::vector<int> perm(n_comb);
-    // make sure the slowest and fastest experiment are run
-    perm[0] = 0;
+    perm[0] = 0;    
     if (n_comb > 1) {
         perm[1] = n_comb - 1;
         rand_perm(&perm[2], n_comb - 2, 1234);
@@ -690,6 +690,7 @@ void ParameterSpace::explore(
                 continue;
         }
 
+        //设置组合参数
         set_index_parameters(index, cno);
         std::vector<idx_t> I(nq * crit.nnn);
         std::vector<float> D(nq * crit.nnn);

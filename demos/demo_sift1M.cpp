@@ -10,6 +10,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include "faiss/IndexHNSW.h"
 
 #include <sys/stat.h>
 
@@ -29,7 +30,7 @@
 /*****************************************************
  * I/O functions for fvecs and ivecs
  *****************************************************/
-
+//读取fvecs文件，移除维度信息，返回float向量部分
 float* fvecs_read(const char* fname, size_t* d_out, size_t* n_out) {
     FILE* f = fopen(fname, "r");
     if (!f) {
@@ -61,7 +62,7 @@ float* fvecs_read(const char* fname, size_t* d_out, size_t* n_out) {
     return x;
 }
 
-// not very clean, but works as long as sizeof(int) == sizeof(float)
+//读取ivecs文件：唯一区别是数据类型是 int 不是 float， 直接将返回的 x 从原本的 float* 强转为 int*
 int* ivecs_read(const char* fname, size_t* d_out, size_t* n_out) {
     return (int*)fvecs_read(fname, d_out, n_out);
 }
@@ -76,7 +77,8 @@ int main() {
     double t0 = elapsed();
 
     // this is typically the fastest one.
-    const char* index_key = "IVF4096,Flat";
+    //const char* index_key = "IVF4096,Flat";    //"IVF4096" 表示使用 IVF（Inverted File）索引，nlist=4096，也就是分成 4096 个簇
+      const char* index_key = "HNSW16,Flat";
 
     // these ones have better memory usage
     // const char *index_key = "Flat";
@@ -89,23 +91,29 @@ int main() {
     // const char *index_key = "OPQ16_64,IMI2x8,PQ8+16";
 
     faiss::Index* index;
-
+    
     size_t d;
 
     {
         printf("[%.3f s] Loading train set\n", elapsed() - t0);
 
         size_t nt;
+        //d 被写入向量的维度； nt 被写入向量的数量； 返回值 xt 是一个指向大小为 nt × d 的 float 数组的指针
         float* xt = fvecs_read("sift1M/sift_learn.fvecs", &d, &nt);
 
         printf("[%.3f s] Preparing index \"%s\" d=%ld\n",
                elapsed() - t0,
                index_key,
                d);
-        index = faiss::index_factory(d, index_key);
+        //根据描述将 index 赋值给对应的 Index 子类,这里对应的为 IndexIVFFlat 子类
+        index = faiss::index_factory(d, index_key); 
+        index->verbose = true;
+        faiss::index_factory_verbose = true;
+        ((faiss::IndexHNSW*)index)->hnsw.efConstruction = 50;
 
         printf("[%.3f s] Training on %ld vectors\n", elapsed() - t0, nt);
-
+        
+        //构建簇和质心
         index->train(nt, xt);
         delete[] xt;
     }
@@ -122,12 +130,13 @@ int main() {
                nb,
                d);
 
+        //把 base 里的向量加载到已经训练好的索引中(这里才开始构图但是没有聚类)
         index->add(nb, xb);
 
         delete[] xb;
     }
 
-    size_t nq;
+    size_t nq;  //查询向量的数量
     float* xq;
 
     {
@@ -169,12 +178,14 @@ int main() {
                k,
                nq);
 
+        //衡量 1-recall@1 的召回率
         faiss::OneRecallAtRCriterion crit(nq, 1);
         crit.set_groundtruth(k, nullptr, gt);
         crit.nnn = k; // by default, the criterion will request only 1 NN
 
         printf("[%.3f s] Preparing auto-tune parameters\n", elapsed() - t0);
-
+        
+        //针对当前索引 index 生成可调节参数空间
         faiss::ParameterSpace params;
         params.initialize(index);
 
@@ -184,6 +195,8 @@ int main() {
                params.n_combinations());
 
         faiss::OperatingPoints ops;
+
+        //尝试不同的参数组合，评估每组参数下的搜索效果
         params.explore(index, nq, xq, crit, &ops);
 
         printf("[%.3f s] Found the following operating points: \n",
@@ -191,7 +204,7 @@ int main() {
 
         ops.display();
 
-        // keep the first parameter that obtains > 0.5 1-recall@1
+        // 从自动调参得到的最优点中，选择第一个 recall@1 大于 0.5 的参数组合，并将其保存到 selected_params 中
         for (int i = 0; i < ops.optimal_pts.size(); i++) {
             if (ops.optimal_pts[i].perf > 0.5) {
                 selected_params = ops.optimal_pts[i].key;
@@ -215,8 +228,8 @@ int main() {
         printf("[%.3f s] Perform a search on %ld queries\n",
                elapsed() - t0,
                nq);
-
-        // output buffers
+        
+        //计算搜索结果的 Recall@1、Recall@10、Recall@100
         faiss::idx_t* I = new faiss::idx_t[nq * k];
         float* D = new float[nq * k];
 
@@ -224,7 +237,6 @@ int main() {
 
         printf("[%.3f s] Compute recalls\n", elapsed() - t0);
 
-        // evaluate result by hand.
         int n_1 = 0, n_10 = 0, n_100 = 0;
         for (int i = 0; i < nq; i++) {
             int gt_nn = gt[i * k];

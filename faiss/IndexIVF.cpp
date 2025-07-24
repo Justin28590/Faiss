@@ -76,9 +76,10 @@ void Level1Quantizer::train_q1(     //负责训练 IVF 的一级量化器（quan
 
         Clustering clus(d, nlist, cp);  //创建一个名为 clus 的 Clustering 对象，用于对维度为 d 的数据进行聚类，聚类的簇数为 nlist，cp 为传入的聚类参数（比如迭代次数、收敛条件等）。
         quantizer->reset();
-        if (clustering_index) {     //如果 clustering_index 存在（非空指针），就用它作为索引来做聚类
-            clus.train(n, x, *clustering_index);
-            quantizer->add(nlist, clus.centroids.data());
+        //完成K-means聚类：
+        if (clustering_index) {     //clustering_index 是一个可选的辅助索引器，用于加速聚类过程中“找最近质心”的步骤:比如采用 HNSW 的搜索方式来搜索
+            clus.train(n, x, *clustering_index);    //对输入向量 x 进行聚类，生成质心,结果保存在 clus.centroids.data() 中
+            quantizer->add(nlist, clus.centroids.data());       //把刚刚聚好的 nlist 个质心 作为 coarse quantizer 的索引点 添加进去
         } else {
             clus.train(n, x, *quantizer);
         }
@@ -90,12 +91,12 @@ void Level1Quantizer::train_q1(     //负责训练 IVF 的一级量化器（quan
                    d,
                    clustering_index ? "(user provided index)" : "");
         }
-        // also accept spherical centroids because in that case
-        // L2 and IP are equivalent
+        
         FAISS_THROW_IF_NOT(
                 metric_type == METRIC_L2 ||
                 (metric_type == METRIC_INNER_PRODUCT && cp.spherical));
-
+        
+        //L2 距离的 K-means 聚类实现：
         Clustering clus(d, nlist, cp);
         if (!clustering_index) {
             IndexFlatL2 assigner(d);
@@ -183,8 +184,8 @@ void IndexIVF::add(idx_t n, const float* x) {
 
 void IndexIVF::add_with_ids(idx_t n, const float* x, const idx_t* xids) {
     std::unique_ptr<idx_t[]> coarse_idx(new idx_t[n]);
-    quantizer->assign(n, x, coarse_idx.get());
-    add_core(n, x, xids, coarse_idx.get());
+    quantizer->assign(n, x, coarse_idx.get());      //粗分配”每个向量归属的簇
+    add_core(n, x, xids, coarse_idx.get());     //把数据和对应的簇索引加入倒排索引核心结构
 }
 
 void IndexIVF::add_sa_codes(idx_t n, const uint8_t* codes, const idx_t* xids) {
@@ -201,6 +202,7 @@ void IndexIVF::add_sa_codes(idx_t n, const uint8_t* codes, const idx_t* xids) {
     ntotal += n;
 }
 
+//把新的数据向量 x 添加到倒排文件索引（IVF）中
 void IndexIVF::add_core(
         idx_t n,
         const float* x,
@@ -1152,13 +1154,13 @@ void IndexIVF::train(idx_t n, const float* x) {
         printf("Training level-1 quantizer\n");
     }
 
-    train_q1(n, x, verbose, metric_type);   //训练一级量化器（通常是k-means聚类的质心），划分数据空间
+    //训练一级量化器:K-means聚类的质心以及把向量分配到对应的簇里去
+    train_q1(n, x, verbose, metric_type);   
 
     if (verbose) {
         printf("Training IVF residual\n");
     }
 
-    // optional subsampling
     idx_t max_nt = train_encoder_num_vectors();
     if (max_nt <= 0) {
         max_nt = (size_t)1 << 35;
@@ -1166,7 +1168,8 @@ void IndexIVF::train(idx_t n, const float* x) {
 
     TransformedVectors tv(
             x, fvecs_maybe_subsample(d, (size_t*)&n, max_nt, x, verbose));
-
+    
+    //是否使用残差来训练编码器:将高维向量压缩成更紧凑的表示,通过训练，编码器学习如何用少量码字近似原始数据，尽量保留向量间的相似性
     if (by_residual) {
         std::vector<idx_t> assign(n);
         quantizer->assign(n, tv.x, assign.data());

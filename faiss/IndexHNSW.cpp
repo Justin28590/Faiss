@@ -52,6 +52,7 @@ DistanceComputer* storage_distance_computer(const Index* storage) {
     }
 }
 
+//HNSW 构图实现
 void hnsw_add_vertices(
         IndexHNSW& index_hnsw,
         size_t n0,
@@ -91,7 +92,7 @@ void hnsw_add_vertices(
 
     { // make buckets with vectors of the same level
 
-        // build histogram
+        //统计每个 level 上有多少点
         for (int i = 0; i < n; i++) {
             storage_idx_t pt_id = i + n0;
             int pt_level = hnsw.levels[pt_id] - 1;
@@ -100,13 +101,13 @@ void hnsw_add_vertices(
             hist[pt_level]++;
         }
 
-        // accumulate
+        // 得到每个 level 的起始 offset：
         std::vector<int> offsets(hist.size() + 1, 0);
         for (int i = 0; i < hist.size() - 1; i++) {
             offsets[i + 1] = offsets[i] + hist[i];
         }
 
-        // bucket sort
+        // 根据 level 对所有点做分类（但是没有聚类）   order[]: 排序后的输出，记录每个点的 id，按 level 分桶（高层在前）
         for (int i = 0; i < n; i++) {
             storage_idx_t pt_id = i + n0;
             int pt_level = hnsw.levels[pt_id] - 1;
@@ -131,7 +132,7 @@ void hnsw_add_vertices(
                 printf("Adding %d elements at level %d\n", i1 - i0, pt_level);
             }
 
-            // random permutation to get rid of dataset order bias
+            //对每一层中的点随机打乱
             for (int j = i0; j < i1; j++)
                 std::swap(order[j], order[j + rng2.rand_int(i1 - j)]);
 
@@ -159,7 +160,7 @@ void hnsw_add_vertices(
                     if (interrupt) {
                         continue;
                     }
-
+                    //并发添加 HNSW 节点
                     hnsw.add_with_locks(
                             *dis,
                             pt_level,
@@ -301,6 +302,8 @@ void IndexHNSW::search(
     using RH = HeapBlockResultHandler<HNSW::C>;
     RH bres(n, distances, labels, k);
 
+    printf("using hnsw_search");
+    
     hnsw_search(this, n, x, bres, params);
 
     if (is_similarity_metric(this->metric_type)) {
